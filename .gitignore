@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+
+# Render cache (Blender .npy outputs, large and regenerable)
+vf_cache/
+
+# Scratch previews
+preview/
+
+# Model response caches / run outputs
+runs/
+*.npy
+
+# Local tool config
+.claude/
