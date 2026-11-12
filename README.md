@@ -39,7 +39,7 @@ Bugs this caught in the first build (all fixed): touching pegs, a crack running 
 mis-computed by banker's rounding, a robot-path task that was always "yes", colliding furniture creating
 unintended anomalies, pedestrians too hidden to see, and mirror manipulations too subtle for people.
 
-## Task catalogue (55 tasks)
+## Task catalogue (56 tasks)
 
 | Group | Tasks |
 |---|---|
@@ -47,7 +47,7 @@ unintended anomalies, pedestrians too hidden to see, and mirror manipulations to
 | `indoor3d` (ray-traced rooms) | out_of_place, would_fall, two_view_change, robot_path, shadow_check, voxel_count |
 | `driving` | obstacle_lane, hidden_pedestrian (3D); right_of_way, stop_in_time, lane_change, wrong_way (diagrams) |
 | `real2d` | pcb_defect, crack_measure, cytology_count, tube_tip, caliper_measure, floorplan_path, pid_flow, circuit_leds, transit_route, aerial_change, flood_route, shelf_planogram, liquid_volume, cylinder_reading, billiards_bank, ui_state, spreadsheet_rank, gantt_overlap |
-| `real3d` (ray-traced) | assembly_check, pick_order, fruit_count, offside_call, line_call, mirror_check |
+| `real3d` (ray-traced) | assembly_check, pick_order, fruit_count, offside_call, line_call, mirror_check; **cable_match** (Blender, see below) |
 
 Each task records its real-world application, the capability it tests, its knob, and its **puzzle twin**
 (the abstract counterpart, e.g. tube_tip ↔ wire_trace, pick_order ↔ layer_stack, billiards_bank ↔ mirror_laser).
@@ -76,6 +76,25 @@ def my_task(rng, d):
     return dict(image=img, question=q, answer=a, atype="int" | "float" | "choice" | "seq",
                 choices=[...], tol=0.0, spec={...})
 ```
+
+## cable_match: physically simulated, Blender-rendered cables
+
+TRACE's task (arXiv 2609.29103: which connector is the other end of a cable?) with WireSeg-style physics.
+`vf/ropesim.py` drops cables onto a desk with a position-based-dynamics rope simulation (inextensible, bending
+stiffness, gravity, friction, cable-cable collision), so cables rest on each other at crossings.
+`vf/blender/cables_scene.py` renders the scene in Blender via BlenderProc (GPU), with a mask per cable.
+
+```bash
+pip install blenderproc          # downloads Blender 4.2 on first run (~350 MB)
+python -m vf.samples --n 10 --tasks cable_match
+```
+
+Knobs (stored per sample, each overridable): `n_cables` (2-5), `wiggle`, `mono` (all white, as in TRACE),
+`stiffness`, `extra_ports`, `tilt`; measured: `crossings_on_target`, `min_cross_angle`, `target_covered_frac`.
+Human-solvability rules enforced in code: no spot where 3+ cables meet, crossings on the target >= 40 degrees,
+no side-by-side runs; harder settings require 1-3+ crossings on the target. The checker reads the rendered
+cable mask to confirm which port the target cable reaches. Renders are cached in `vf_cache/` (not in git), so
+on a fresh clone re-render before running `vf.verify` on this task.
 
 ## Upgrade path: photoreal indoor scenes
 

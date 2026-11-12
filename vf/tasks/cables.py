@@ -68,12 +68,12 @@ def _render(spec):
       "tracing deformable cables through crossings", knob="n_cables, wiggle, mono, stiffness, extra_ports, tilt",
       twin="puzzle: wire_trace; text: centrelines + port positions", group="real3d")
 def cable_match(rng, d, n_cables=None, wiggle=None, mono=None, stiffness=None, extra_ports=None, tilt=None):
-    n = n_cables if n_cables is not None else ilerp(2, 8, d)
-    wg = wiggle if wiggle is not None else lerp(0.06, 0.24, d)
+    n = n_cables if n_cables is not None else ilerp(2, 5, d)      # TRACE: models already fail at 2-4
+    wg = wiggle if wiggle is not None else lerp(0.05, 0.16, d)
     mono = mono if mono is not None else (d >= 0.4)
-    stiff = stiffness if stiffness is not None else lerp(0.6, 0.25, d)
+    stiff = stiffness if stiffness is not None else lerp(0.7, 0.45, d)
     extra = extra_ports if extra_ports is not None else ilerp(0, 3, d)
-    tilt = tilt if tilt is not None else lerp(0.0, 0.7, d)
+    tilt = tilt if tilt is not None else lerp(0.0, 0.25, d)
     K = n + extra
     ys = (np.arange(K) - (K - 1) / 2) * PORT_DY
     lp = sorted(rng.sample(range(K), n))                     # used left ports
@@ -99,7 +99,7 @@ def cable_match(rng, d, n_cables=None, wiggle=None, mono=None, stiffness=None, e
         xy = _resample(pts, N)
         if np.abs(xy[:, 1]).max() > 0.36:
             raise Reject                                     # stay on the desk area in view
-        ramp = np.clip(np.minimum(np.arange(N), np.arange(N)[::-1]) / 25, 0, 1)
+        ramp = np.clip(np.minimum(np.arange(N), np.arange(N)[::-1]) / 60, 0, 1)   # gentle drop near plugs
         z = PORT_Z + (0.012 + 0.012 * order.index(c)) * ramp
         init.append(np.column_stack([xy, z]))
     P = simulate(np.array(init), R, stiffness=stiff, iters=8, pinned=8)
@@ -110,7 +110,7 @@ def cable_match(rng, d, n_cables=None, wiggle=None, mono=None, stiffness=None, e
     def check(t):
         cr = crossings_2d(P, t)
         ang = min((x for _, x, _ in cr), default=90.0)
-        if ang < lerp(35, 20, d):
+        if ang < 40:
             return None                                      # too-shallow crossing: tangential ambiguity
         a2 = P[t][:, :2]
         if n == 1:
@@ -127,10 +127,21 @@ def cable_match(rng, d, n_cables=None, wiggle=None, mono=None, stiffness=None, e
         if (near >= 2).any():
             return None                                      # 3+ cables meet at one spot on the target
         return cr, ang, float(np.mean(dmin < 2 * R))
+    # no knots anywhere in the picture: nowhere may 3+ cables come within ~1 cm of one spot
+    if n >= 3:
+        trees = [cKDTree(P[c][:, :2]) for c in range(n)]
+        for c in range(n):
+            near = np.stack([trees[o].query(P[c][:, :2])[0] < 0.011 for o in range(n) if o != c]).sum(0)
+            if (near >= 2).any():
+                raise Reject
     valid = {t: v for t in range(n) if (v := check(t)) is not None}
     if not valid:
         raise Reject
     tgt = rng.choice(sorted(valid))
+    if d >= 0.4:                                             # harder settings ask about the most-crossed clean cable
+        tgt = max(sorted(valid), key=lambda t: (len(valid[t][0]), rng.random()))
+        if len(valid[tgt][0]) < ilerp(1, 3, d):
+            raise Reject                                     # scene too easy for this difficulty
     cr, min_angle, covered = valid[tgt]
     # ---- scene spec for Blender
     hub_size = (0.05, K * PORT_DY + 0.03, 0.016)
@@ -153,7 +164,7 @@ def cable_match(rng, d, n_cables=None, wiggle=None, mono=None, stiffness=None, e
         cables.append(dict(pts=P[c][::2].round(5).tolist() + [P[c][-1].round(5).tolist()], color=colors[c], id=c + 1,
                            connectors=conns))
     wood = rng.random() < 0.5
-    table = dict(c1=(.42, .27, .15), c2=(.30, .18, .09), scale=6, stretch=(1, 12, 1)) if wood else \
+    table = dict(c1=(.24, .14, .07), c2=(.17, .09, .045), scale=6, stretch=(1, 12, 1)) if wood else \
         dict(c1=(.10, .11, .12), c2=(.07, .07, .08), scale=40, rough=.8)
     cam_y = -0.95 * math.sin(tilt * math.radians(55))
     cam_z = 0.95 * math.cos(tilt * math.radians(55)) + 0.12
@@ -161,8 +172,8 @@ def cable_match(rng, d, n_cables=None, wiggle=None, mono=None, stiffness=None, e
                    size=1.2, color=(1, rng.uniform(.9, 1), rng.uniform(.8, .95))),
               dict(type="POINT", loc=(rng.uniform(-1, 1), rng.uniform(-1, 1), .9), energy=rng.uniform(20, 60))]
     project = [list(p["pos"]) for h in hubs for p in h["ports"]]
-    spec = dict(res=(1280, 860), table=table, hubs=[dict(h, label_size=0.016) for h in hubs], cables=cables, radius=R,
-                lights=lights, camera=dict(loc=(0, cam_y, cam_z), look=(0, 0, 0), fov=58), samples=64,
+    spec = dict(res=(1600, 1080), table=table, hubs=[dict(h, label_size=0.016) for h in hubs], cables=cables, radius=R,
+                lights=lights, camera=dict(loc=(0, cam_y, cam_z), look=(0, 0, 0), fov=52), samples=64,
                 project=project)
     img, seg_path, proj = _render(spec)
     q = (f"Two USB hubs are connected by cables. Follow the cable plugged into port {LETTERS[lp[tgt]]} of the left "
